@@ -10,6 +10,8 @@ import { menuItems, rooms, tables, categories } from "@/lib/dummy-data";
 import {
   FiMessageSquare, FiPrinter, FiCheck, FiPlus, FiInfo, FiCreditCard, FiX, FiTag, FiEye, FiPlusCircle
 } from "react-icons/fi";
+import { registerOrderListener } from "@/lib/order-dispatcher";
+import { playSynthesizedSound } from "@/lib/sound-alerts";
 
 const FILTERS: { id: OrderStatus | "all"; label: string }[] = [
   { id: "all", label: "All Status" },
@@ -145,12 +147,25 @@ export default function OrdersPage() {
   useEffect(() => {
     fetchOrders();
 
+    // Register broadcast listener for live QR guest orders
+    const unsubscribe = registerOrderListener((order) => {
+      setOrders((prev) => {
+        // Prevent duplicates
+        if (prev.some((o) => o.id === order.id)) return prev;
+        return [order, ...prev];
+      });
+      // Play a loud and clear synthesized bell sound on laptop
+      playSynthesizedSound("bell");
+      triggerToast(`New QR Order placed! (${order.id})`);
+    });
+
     const channel = new BroadcastChannel("hotel_orders_channel");
     channel.onmessage = () => {
       fetchOrders();
     };
 
     return () => {
+      unsubscribe();
       channel.close();
     };
   }, []);
@@ -454,6 +469,30 @@ export default function OrdersPage() {
     }
   };
 
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
+    try {
+      await fetch("/api/orders", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: orderId,
+          status: newStatus
+        }),
+      });
+
+      await fetchOrders();
+      triggerToast(`Order status updated to ${newStatus.toUpperCase()}!`);
+
+      // Broadcast changes
+      const channel = new BroadcastChannel("hotel_orders_channel");
+      channel.postMessage("order_status_sync");
+      channel.close();
+    } catch (err) {
+      console.error("Failed to update order status:", err);
+      triggerToast("Failed to update status");
+    }
+  };
+
   const getStatusColors = (status: OrderStatus) => {
     switch (status) {
       case "pending":
@@ -641,31 +680,80 @@ export default function OrdersPage() {
 
                           {/* Bottom: Action Grid */}
                           <div className="grid grid-cols-2 gap-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedOrderForBilling(activeOrder);
-                              }}
-                              title="Settle & Print invoice copy"
-                              className="h-8 rounded-lg text-white flex items-center justify-center text-[11px] font-medium transition-all hover:scale-[1.01] hover:shadow-lg active:scale-[0.99] cursor-pointer w-full bg-primary hover:bg-primary/90"
-                            >
-                              Settle
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedOrderForBilling(activeOrder);
-                                setActiveMenuCategory("all");
-                                setIsMenuModalOpen(true);
-                              }}
-                              title="Append KOT items"
-                              className="h-8 rounded-lg border flex items-center justify-center text-[11px] font-medium transition-all hover:scale-[1.01] hover:shadow-lg active:scale-[0.99] cursor-pointer w-full bg-surface border-primary/20 text-primary hover:bg-primary/10"
-                            >
-                              Edit
-                            </button>
+                            {activeOrder.status === "pending" ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUpdateOrderStatus(activeOrder.id, "preparing");
+                                  }}
+                                  className="h-8 rounded-lg text-white flex items-center justify-center text-[11px] font-medium transition-all hover:scale-[1.01] hover:shadow-lg active:scale-[0.99] cursor-pointer w-full bg-emerald-600 hover:bg-emerald-700"
+                                >
+                                  Accept
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUpdateOrderStatus(activeOrder.id, "delivered"); // Reject resolves to delivered/completed to clear it
+                                  }}
+                                  className="h-8 rounded-lg border flex items-center justify-center text-[11px] font-medium transition-all hover:scale-[1.01] hover:shadow-lg active:scale-[0.99] cursor-pointer w-full bg-surface border-rose-200 text-rose-600 hover:bg-rose-50"
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            ) : activeOrder.status === "preparing" ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUpdateOrderStatus(activeOrder.id, "ready");
+                                  }}
+                                  className="h-8 rounded-lg text-white flex items-center justify-center text-[11px] font-medium transition-all hover:scale-[1.01] hover:shadow-lg active:scale-[0.99] cursor-pointer w-full bg-blue-600 hover:bg-blue-700"
+                                >
+                                  Mark Ready
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedOrderForBilling(activeOrder);
+                                    setActiveMenuCategory("all");
+                                    setIsMenuModalOpen(true);
+                                  }}
+                                  className="h-8 rounded-lg border flex items-center justify-center text-[11px] font-medium transition-all hover:scale-[1.01] hover:shadow-lg active:scale-[0.99] cursor-pointer w-full bg-surface border-primary/20 text-primary hover:bg-primary/10"
+                                >
+                                  Edit
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedOrderForBilling(activeOrder);
+                                  }}
+                                  className="h-8 rounded-lg text-white flex items-center justify-center text-[11px] font-medium transition-all hover:scale-[1.01] hover:shadow-lg active:scale-[0.99] cursor-pointer w-full bg-primary hover:bg-primary/90"
+                                >
+                                  Settle
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedOrderForBilling(activeOrder);
+                                    setActiveMenuCategory("all");
+                                    setIsMenuModalOpen(true);
+                                  }}
+                                  className="h-8 rounded-lg border flex items-center justify-center text-[11px] font-medium transition-all hover:scale-[1.01] hover:shadow-lg active:scale-[0.99] cursor-pointer w-full bg-surface border-primary/20 text-primary hover:bg-primary/10"
+                                >
+                                  Edit
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       );

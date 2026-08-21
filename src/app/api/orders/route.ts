@@ -59,10 +59,7 @@ export async function GET(_req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!(await isAuthorized())) {
-    return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
-  }
-
+  // Allow public POST requests for guests placing orders from QR codes
   await ensureDb();
   try {
     const body = await req.json() as OrderRequestBody;
