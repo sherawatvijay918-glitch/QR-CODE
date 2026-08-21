@@ -1561,6 +1561,7 @@ export default function OrdersPage() {
                     &times;
                   </button>
                 </div>
+              </div>
 
                 {/* Body: Categories (Left) & Food Grid (Right) */}
                 <div className="flex-1 flex gap-5 overflow-hidden my-4">
@@ -1659,7 +1660,6 @@ export default function OrdersPage() {
                   </button>
                 </div>
 
-              </div>
             </div>
           </div>
         )}
