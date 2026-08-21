@@ -15,6 +15,15 @@ export const rooms: Room[] = [
   { id: "r4", number: "205", floor: 2, status: "cleaning", qrCode: "QR-ROOM-205", ordersToday: 1 },
   { id: "r5", number: "301", floor: 3, status: "occupied", qrCode: "QR-ROOM-301", ordersToday: 2 },
   { id: "r6", number: "302", floor: 3, status: "vacant", qrCode: "QR-ROOM-302", ordersToday: 0 },
+  { id: "r7", number: "103", floor: 1, status: "vacant", qrCode: "QR-ROOM-103", ordersToday: 0 },
+  { id: "r8", number: "104", floor: 1, status: "vacant", qrCode: "QR-ROOM-104", ordersToday: 0 },
+  { id: "r9", number: "105", floor: 1, status: "vacant", qrCode: "QR-ROOM-105", ordersToday: 0 },
+  { id: "r10", number: "201", floor: 2, status: "vacant", qrCode: "QR-ROOM-201", ordersToday: 0 },
+  { id: "r11", number: "202", floor: 2, status: "vacant", qrCode: "QR-ROOM-202", ordersToday: 0 },
+  { id: "r12", number: "203", floor: 2, status: "vacant", qrCode: "QR-ROOM-203", ordersToday: 0 },
+  { id: "r13", number: "303", floor: 3, status: "vacant", qrCode: "QR-ROOM-303", ordersToday: 0 },
+  { id: "r14", number: "304", floor: 3, status: "vacant", qrCode: "QR-ROOM-304", ordersToday: 0 },
+  { id: "r15", number: "305", floor: 3, status: "vacant", qrCode: "QR-ROOM-305", ordersToday: 0 },
 ];
 
 export const tables: RestaurantTable[] = [
@@ -24,6 +33,8 @@ export const tables: RestaurantTable[] = [
   { id: "t4", number: "Table T4", seats: 6, status: "occupied", qrCode: "QR-TABLE-T4", ordersToday: 3 },
   { id: "t5", number: "Table T5", seats: 2, status: "occupied", qrCode: "QR-TABLE-T5", ordersToday: 1 },
   { id: "t6", number: "Table T6", seats: 4, status: "vacant", qrCode: "QR-TABLE-T6", ordersToday: 0 },
+  { id: "t7", number: "Table T7", seats: 4, status: "vacant", qrCode: "QR-TABLE-T7", ordersToday: 0 },
+  { id: "t8", number: "Table T8", seats: 6, status: "vacant", qrCode: "QR-TABLE-T8", ordersToday: 0 },
 ];
 
 export const categories: MenuCategory[] = [
