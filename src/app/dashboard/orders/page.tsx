@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Topbar from "@/components/Topbar";
 import StatusBadge from "@/components/StatusBadge";
 import VegDot from "@/components/VegDot";
@@ -131,11 +131,28 @@ export default function OrdersPage() {
     setIsAddSourceModalOpen(false);
   };
 
-  const fetchOrders = async () => {
+  const ordersRef = useRef<Order[]>([]);
+
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
+
+  const fetchOrders = async (isFirstLoad = false) => {
     try {
       const res = await fetch("/api/orders");
       const data = await res.json();
       if (Array.isArray(data)) {
+        // If not the first load, check if there are new pending orders
+        if (!isFirstLoad && ordersRef.current.length > 0) {
+          const currentIds = new Set(ordersRef.current.map(o => o.id));
+          const newPendings = data.filter(o => o.status === "pending" && !currentIds.has(o.id));
+          
+          if (newPendings.length > 0) {
+            // Play a loud and clear synthesized bell sound on laptop
+            playSynthesizedSound("bell");
+            triggerToast(`New QR Order placed! (${newPendings[0].id})`);
+          }
+        }
         setOrders(data);
       }
     } catch (err) {
@@ -146,9 +163,14 @@ export default function OrdersPage() {
   };
 
   useEffect(() => {
-    fetchOrders();
+    fetchOrders(true); // First load
 
-    // Register broadcast listener for live QR guest orders
+    // Poll every 3 seconds for cross-device updates (phone-to-laptop)
+    const interval = setInterval(() => {
+      fetchOrders(false);
+    }, 3000);
+
+    // Register broadcast listener for live QR guest orders in same browser
     const unsubscribe = registerOrderListener((order) => {
       setOrders((prev) => {
         // Prevent duplicates
@@ -162,10 +184,11 @@ export default function OrdersPage() {
 
     const channel = new BroadcastChannel("hotel_orders_channel");
     channel.onmessage = () => {
-      fetchOrders();
+      fetchOrders(false);
     };
 
     return () => {
+      clearInterval(interval);
       unsubscribe();
       channel.close();
     };
