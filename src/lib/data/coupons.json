@@ -1,0 +1,38 @@
+[
+  {
+    "code": "VEGPANIER",
+    "type": "flat",
+    "value": 100,
+    "minOrder": 400,
+    "active": 1,
+    "usageCount": 12,
+    "itemId": null
+  },
+  {
+    "code": "LUNCH25",
+    "type": "percent",
+    "value": 25,
+    "minOrder": 250,
+    "active": 1,
+    "usageCount": 45,
+    "itemId": null
+  },
+  {
+    "code": "FIRSTORDER",
+    "type": "flat",
+    "value": 50,
+    "minOrder": 150,
+    "active": 1,
+    "usageCount": 89,
+    "itemId": null
+  },
+  {
+    "code": "PANEER50",
+    "type": "flat",
+    "value": 50,
+    "minOrder": 0,
+    "active": 1,
+    "usageCount": 5,
+    "itemId": "m_paneer_butter_masala"
+  }
+]

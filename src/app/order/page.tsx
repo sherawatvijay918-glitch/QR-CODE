@@ -40,6 +40,9 @@ function OrderSimulator() {
   const [appliedCoupon, setAppliedCoupon] = useState<any | null>(null);
   const [couponError, setCouponError] = useState("");
 
+  const [isRoomVacant, setIsRoomVacant] = useState(false);
+  const [isLoadingCheckIn, setIsLoadingCheckIn] = useState(false);
+
   useEffect(() => {
     // Fetch active coupons from MySQL
     fetch("/api/coupons")
@@ -51,6 +54,28 @@ function OrderSimulator() {
       })
       .catch((err) => console.error("Error fetching coupons:", err));
   }, []);
+
+  useEffect(() => {
+    // If it is a room service scan, check if the room is checked-in
+    if (resolvedRoom) {
+      setIsLoadingCheckIn(true);
+      fetch(`/api/rooms/check-in-status?roomId=${rawId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.checkedIn === false) {
+            setIsRoomVacant(true);
+          } else {
+            setIsRoomVacant(false);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to verify room check-in status:", err);
+        })
+        .finally(() => {
+          setIsLoadingCheckIn(false);
+        });
+    }
+  }, [rawId, resolvedRoom]);
 
   const filteredItems = menuItems.filter(item => {
     const matchesCategory = activeCategory === "all" || item.categoryId === activeCategory;
@@ -215,6 +240,13 @@ function OrderSimulator() {
         100% PURE VEGETARIAN DINING
       </div>
 
+      {isRoomVacant && (
+        <div className="bg-rose-100 dark:bg-rose-950/20 border-b border-rose-200 dark:border-rose-900/30 text-rose-800 dark:text-rose-400 text-center py-4 px-6 text-xs font-bold space-y-1 select-none flex flex-col items-center justify-center">
+          <p className="text-sm font-extrabold uppercase tracking-wide">⚠️ Room Ordering Blocked</p>
+          <p className="font-medium max-w-md">This room ({sourceLabel}) is currently vacant. Please check-in at the reception desk to activate ordering permissions.</p>
+        </div>
+      )}
+
       <div className="max-w-xl mx-auto p-4 md:p-6 space-y-6">
         
         {/* Brand Header Banner */}
@@ -302,29 +334,33 @@ function OrderSimulator() {
                     </div>
                     
                     {/* Overlapping Add Button (Swiggy / Zepto Style) */}
+                    {/* Overlapping Add Button (Swiggy / Zepto Style) */}
                     <div 
                       className="absolute bottom-[-10px] left-1/2 transform -translate-x-1/2 w-24"
                       onClick={(e) => e.stopPropagation()}
                     >
                       {qty === 0 ? (
                         <button
+                          disabled={isRoomVacant}
                           onClick={() => handleUpdateQty(item.id, 1)}
-                          className="flex items-center justify-center w-full bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-slate-800 border border-emerald-200 dark:border-emerald-900/50 py-2 rounded-xl text-xs font-extrabold shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer text-center"
+                          className="flex items-center justify-center w-full bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-slate-800 border border-emerald-200 dark:border-emerald-900/50 py-2 rounded-xl text-xs font-extrabold shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer text-center disabled:opacity-50 disabled:pointer-events-none"
                         >
                           ADD
                         </button>
                       ) : (
                         <div className="flex items-center justify-between w-full bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800/80 py-1.5 px-2.5 rounded-xl text-xs font-extrabold shadow-md">
                           <button
+                            disabled={isRoomVacant}
                             onClick={() => handleUpdateQty(item.id, -1)}
-                            className="h-5 w-5 rounded-full flex items-center justify-center hover:bg-emerald-50 dark:hover:bg-slate-800 cursor-pointer"
+                            className="h-5 w-5 rounded-full flex items-center justify-center hover:bg-emerald-50 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
                           >
                             <FiMinus size={12} />
                           </button>
                           <span className="font-mono text-xs font-extrabold text-slate-800 dark:text-slate-200">{qty}</span>
                           <button
+                            disabled={isRoomVacant}
                             onClick={() => handleUpdateQty(item.id, 1)}
-                            className="h-5 w-5 rounded-full flex items-center justify-center hover:bg-emerald-50 dark:hover:bg-slate-800 cursor-pointer"
+                            className="h-5 w-5 rounded-full flex items-center justify-center hover:bg-emerald-50 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
                           >
                             <FiPlus size={12} />
                           </button>
@@ -546,8 +582,9 @@ function OrderSimulator() {
                 <div className="w-28">
                   {qty === 0 ? (
                     <button
+                      disabled={isRoomVacant}
                       onClick={() => handleUpdateQty(item.id, 1)}
-                      className="flex items-center justify-center w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-xl text-xs font-extrabold shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer"
+                      className="flex items-center justify-center w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-xl text-xs font-extrabold shadow-md hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
                     >
                       ADD TO CART
                     </button>

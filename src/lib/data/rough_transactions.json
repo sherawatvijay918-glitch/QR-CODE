@@ -1,0 +1,84 @@
+[
+  {
+    "id": 1,
+    "customerId": 1,
+    "type": "bill",
+    "amount": 450,
+    "items": [
+      {
+        "name": "Kadai Paneer",
+        "qty": 1,
+        "price": 250
+      },
+      {
+        "name": "Butter Naan",
+        "qty": 4,
+        "price": 50
+      }
+    ],
+    "notes": "Dinner bill",
+    "createdAt": "2026-08-21T11:22:44.630Z"
+  },
+  {
+    "id": 2,
+    "customerId": 1,
+    "type": "payment",
+    "amount": 300,
+    "items": null,
+    "notes": "Paid cash, said will clear rest tomorrow morning",
+    "createdAt": "2026-08-21T11:22:44.630Z"
+  },
+  {
+    "id": 3,
+    "customerId": 2,
+    "type": "bill",
+    "amount": 180,
+    "items": [
+      {
+        "name": "Masala Chai",
+        "qty": 4,
+        "price": 45
+      }
+    ],
+    "notes": "Evening tea",
+    "createdAt": "2026-08-21T11:22:44.630Z"
+  },
+  {
+    "id": 4,
+    "customerId": 2,
+    "type": "payment",
+    "amount": 200,
+    "items": null,
+    "notes": "Gave extra 20 rupees, adjust in tomorrow morning tea",
+    "createdAt": "2026-08-21T11:22:44.630Z"
+  },
+  {
+    "id": 5,
+    "customerId": 3,
+    "type": "bill",
+    "amount": 320,
+    "items": [
+      {
+        "name": "Veg Biryani",
+        "qty": 1,
+        "price": 280
+      },
+      {
+        "name": "Sweet Lassi",
+        "qty": 1,
+        "price": 40
+      }
+    ],
+    "notes": "Lunch",
+    "createdAt": "2026-08-21T11:22:44.630Z"
+  },
+  {
+    "id": 6,
+    "customerId": 3,
+    "type": "payment",
+    "amount": 320,
+    "items": null,
+    "notes": "Fully paid via UPI",
+    "createdAt": "2026-08-21T11:22:44.630Z"
+  }
+]

@@ -1,0 +1,86 @@
+[
+  {
+    "id": "ORD-4927",
+    "sourceType": "room",
+    "sourceLabel": "Room 204",
+    "status": "ready",
+    "placedAt": "2026-08-21T11:22:44.624Z",
+    "updatedAt": "2026-08-21T11:23:12.607Z",
+    "total": 475,
+    "couponCode": null,
+    "discount": null,
+    "items": [
+      {
+        "id": "m_paneer_butter_masala",
+        "name": "Paneer Butter Masala",
+        "qty": 1,
+        "price": 310,
+        "veg": true
+      },
+      {
+        "id": "m_tandoori_roti",
+        "name": "Tandoori Roti",
+        "qty": 2,
+        "price": 45,
+        "veg": true
+      },
+      {
+        "id": "m_jeera_rice",
+        "name": "Jeera Rice",
+        "qty": 1,
+        "price": 120,
+        "veg": true
+      }
+    ],
+    "instructions": null
+  },
+  {
+    "id": "ORD-8812",
+    "sourceType": "table",
+    "sourceLabel": "Table T4",
+    "status": "preparing",
+    "placedAt": "2026-08-21T11:22:44.624Z",
+    "updatedAt": "2026-08-21T11:22:44.624Z",
+    "total": 355,
+    "couponCode": "FIRSTORDER",
+    "discount": 50,
+    "items": [
+      {
+        "id": "m_paneer_tikka",
+        "name": "Paneer Tikka",
+        "qty": 1,
+        "price": 245,
+        "veg": true
+      },
+      {
+        "id": "m_masala_chai",
+        "name": "Masala Chai",
+        "qty": 2,
+        "price": 80,
+        "veg": true
+      }
+    ],
+    "instructions": "Make paneer spicy"
+  },
+  {
+    "id": "ORD-1049",
+    "sourceType": "table",
+    "sourceLabel": "Table T1",
+    "status": "ready",
+    "placedAt": "2026-08-21T11:22:44.624Z",
+    "updatedAt": "2026-08-21T11:22:44.624Z",
+    "total": 180,
+    "couponCode": null,
+    "discount": null,
+    "items": [
+      {
+        "id": "m_veg_manchurian",
+        "name": "Veg Manchurian",
+        "qty": 1,
+        "price": 180,
+        "veg": true
+      }
+    ],
+    "instructions": null
+  }
+]

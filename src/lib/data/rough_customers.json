@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "name": "Suresh Kumar",
+    "phone": "9876543201",
+    "totalDue": 150,
+    "createdAt": "2026-08-21T11:22:44.629Z",
+    "updatedAt": "2026-08-21T11:22:44.629Z"
+  },
+  {
+    "id": 2,
+    "name": "Ramesh Uncle",
+    "phone": "9822114455",
+    "totalDue": -20,
+    "createdAt": "2026-08-21T11:22:44.629Z",
+    "updatedAt": "2026-08-21T11:22:44.629Z"
+  },
+  {
+    "id": 3,
+    "name": "Dr. Amit Verma",
+    "phone": "9911883344",
+    "totalDue": 0,
+    "createdAt": "2026-08-21T11:22:44.629Z",
+    "updatedAt": "2026-08-21T11:22:44.629Z"
+  }
+]

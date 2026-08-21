@@ -33,6 +33,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState("");
+  const [viewingOrderDetails, setViewingOrderDetails] = useState<Order | null>(null);
 
   // Dynamic Floor Board lists
   const [localRooms, setLocalRooms] = useState<Room[]>(rooms);
@@ -671,12 +672,21 @@ export default function OrdersPage() {
                           </div>
 
                           {/* Mid: Stats Summary pill */}
-                          <div className="flex items-center justify-between text-[13px] rounded-lg p-2.5 border bg-surface/50">
-                            <span className="font-semibold text-muted">{totalItems} items</span>
-                            <span className="font-mono font-semibold text-foreground">
-                              ₹{Number(activeOrder.total).toFixed(0)}
-                            </span>
-                          </div>
+                          <div 
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               setViewingOrderDetails(activeOrder);
+                             }}
+                             className="flex items-center justify-between text-[13px] rounded-lg p-2.5 border bg-surface/50 hover:bg-surface-inset hover:border-primary/20 transition-all cursor-pointer select-none"
+                             title="Click to view item details"
+                           >
+                             <span className="font-semibold text-muted flex items-center gap-1">
+                               <FiEye size={12} className="text-primary" /> {totalItems} items
+                             </span>
+                             <span className="font-mono font-semibold text-foreground">
+                               ₹{Number(activeOrder.total).toFixed(0)}
+                             </span>
+                           </div>
 
                           {/* Bottom: Action Grid */}
                           <div className="grid grid-cols-2 gap-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
@@ -1650,6 +1660,86 @@ export default function OrdersPage() {
                 </div>
 
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: View Order Details */}
+        {viewingOrderDetails && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-md p-4 animate-fade-in">
+            <div
+              className="w-full max-w-md rounded-3xl p-6 shadow-2xl border flex flex-col justify-between overflow-hidden relative"
+              style={{ backgroundColor: "var(--surface)", borderColor: "var(--border)" }}
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setViewingOrderDetails(null)}
+                className="absolute top-4 right-4 h-8 w-8 rounded-xl flex items-center justify-center transition-all cursor-pointer hover:bg-surface-inset"
+                style={{ color: "var(--muted)" }}
+              >
+                <FiX size={18} />
+              </button>
+
+              <div className="space-y-4">
+                <div className="pb-3 border-b" style={{ borderColor: "var(--border)" }}>
+                  <span className="text-[9px] font-mono font-black uppercase tracking-widest text-primary bg-primary/10 px-3 py-1 rounded-full border border-primary/10">
+                    Order Details
+                  </span>
+                  <h3 className="text-base font-extrabold text-foreground tracking-tight mt-3">
+                    {viewingOrderDetails.sourceLabel} — {viewingOrderDetails.id}
+                  </h3>
+                  <p className="text-[10px] text-muted font-mono mt-1">Placed at: {new Date(viewingOrderDetails.placedAt).toLocaleString()}</p>
+                </div>
+
+                {/* Items list */}
+                <div className="max-h-[40vh] overflow-y-auto space-y-2.5 pr-1 scrollbar-thin">
+                  {viewingOrderDetails.items.map((item: any, idx: number) => (
+                    <div key={idx} className="flex justify-between items-center bg-surface-inset border border-border/40 p-3 rounded-2xl text-xs font-semibold">
+                      <div className="space-y-0.5">
+                        <p className="text-foreground">{item.name}</p>
+                        <p className="text-[10px] text-muted font-mono">₹{item.price} x {item.qty}</p>
+                      </div>
+                      <span className="font-mono text-foreground font-bold">₹{item.price * item.qty}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Instructions */}
+                {viewingOrderDetails.instructions && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 rounded-2xl text-xs space-y-1">
+                    <p className="text-amber-800 dark:text-amber-400 font-bold uppercase tracking-wider text-[9px]">Special Instructions</p>
+                    <p className="text-amber-700 dark:text-amber-500 font-medium">{viewingOrderDetails.instructions}</p>
+                  </div>
+                )}
+
+                {/* Financials Summary */}
+                <div className="border-t pt-3 space-y-2 text-xs font-semibold" style={{ borderColor: "var(--border)" }}>
+                  <div className="flex justify-between text-muted">
+                    <span>Items Subtotal</span>
+                    <span className="font-mono">₹{viewingOrderDetails.items.reduce((s: number, i: any) => s + (i.price * i.qty), 0)}</span>
+                  </div>
+                  {viewingOrderDetails.discount && Number(viewingOrderDetails.discount) > 0 && (
+                    <div className="flex justify-between text-emerald-600">
+                      <span>Discount Coupon ({viewingOrderDetails.couponCode || "Promo"})</span>
+                      <span className="font-mono">-₹{viewingOrderDetails.discount}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-foreground border-t pt-2 text-sm font-extrabold" style={{ borderColor: "var(--border)" }}>
+                    <span>Grand Total</span>
+                    <span className="font-mono">₹{Number(viewingOrderDetails.total).toFixed(0)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 flex items-center gap-3">
+                <button
+                  onClick={() => setViewingOrderDetails(null)}
+                  className="flex-1 py-3 text-xs font-extrabold text-white rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 transition-all cursor-pointer shadow-md"
+                >
+                  Close Details
+                </button>
+              </div>
+
             </div>
           </div>
         )}
