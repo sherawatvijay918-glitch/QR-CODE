@@ -1,0 +1,37 @@
+{
+  "name": "hotel-qr-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "lucide-react": "^1.26.0",
+    "mysql2": "^3.23.1",
+    "next": "16.2.11",
+    "next-themes": "^0.4.6",
+    "qrcode": "^1.5.4",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-icons": "^5.7.0",
+    "recharts": "^3.10.0",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@frontman-ai/nextjs": "^1.0.5",
+    "@opentelemetry/sdk-node": "^0.221.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/three": "^0.185.3",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.11",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
