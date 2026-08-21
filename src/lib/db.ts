@@ -1,280 +1,544 @@
-import mysql from "mysql2/promise";
+import { MongoClient, Db } from "mongodb";
+import fs from "fs";
+import path from "path";
 
-const connectionString = process.env.DATABASE_URL || "mysql://root:@127.0.0.1:3306/hotel_qr_dashboard";
+// Support both STORAGE_URL (injected by Vercel integration) and MONGODB_URI
+const mongoUri = process.env.STORAGE_URL || process.env.MONGODB_URI;
 
-function parseConnectionString(url: string) {
+let mongoClient: MongoClient | null = null;
+let mongoDb: Db | null = null;
+let useLocalFallback = false;
+
+// Local JSON File Database helper for local offline fallback
+const LOCAL_DATA_DIR = path.join(process.cwd(), "src", "lib", "data");
+
+function ensureLocalDataDir() {
+  if (!fs.existsSync(LOCAL_DATA_DIR)) {
+    fs.mkdirSync(LOCAL_DATA_DIR, { recursive: true });
+  }
+}
+
+function getLocalFilePath(table: string) {
+  return path.join(LOCAL_DATA_DIR, `${table}.json`);
+}
+
+function readLocalData(table: string): any[] {
+  ensureLocalDataDir();
+  const filePath = getLocalFilePath(table);
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
   try {
-    const parsed = new URL(url);
-    const database = parsed.pathname.substring(1);
-    const username = parsed.username ? decodeURIComponent(parsed.username) : "root";
-    const password = parsed.password ? decodeURIComponent(parsed.password) : "";
-    return {
-      host: parsed.hostname || "localhost",
-      port: Number(parsed.port) || 3306,
-      user: username,
-      password: password,
-      database: database || "hotel_qr_dashboard"
-    };
+    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
   } catch {
-    return {
-      host: "localhost",
-      port: 3306,
-      user: "root",
-      password: "",
-      database: "hotel_qr_dashboard"
-    };
+    return [];
   }
 }
 
-const config = parseConnectionString(connectionString);
-
-// Primary Pool
-let pool: mysql.Pool;
-
-declare global {
-  var dbPool: mysql.Pool | undefined;
+function writeLocalData(table: string, data: any[]) {
+  ensureLocalDataDir();
+  const filePath = getLocalFilePath(table);
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
 }
 
-if (process.env.NODE_ENV === "production") {
-  pool = mysql.createPool({
-    host: config.host,
-    port: config.port,
-    user: config.user,
-    password: config.password,
-    database: config.database,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-  });
-} else {
-  if (!global.dbPool) {
-    global.dbPool = mysql.createPool({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      database: config.database,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    });
+// Connect to MongoDB
+async function getDb(): Promise<Db | null> {
+  if (useLocalFallback) return null;
+  if (mongoDb) return mongoDb;
+
+  if (!mongoUri) {
+    console.log("No MongoDB URI configured. Falling back to local file database.");
+    useLocalFallback = true;
+    return null;
   }
-  pool = global.dbPool;
-}
 
-// Function to initialize database and tables dynamically
-export async function initDb() {
   try {
-    // 1. Establish basic connection to check server/create database
-    const tempConnection = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password
-    });
-    
-    await tempConnection.query(`CREATE DATABASE IF NOT EXISTS \`${config.database}\`;`);
-    await tempConnection.end();
-
-    // 2. Initialize tables on our primary pool
-    const conn = await pool.getConnection();
-    try {
-      // Table: coupons
-      await conn.query(`
-        CREATE TABLE IF NOT EXISTS coupons (
-          code VARCHAR(50) PRIMARY KEY,
-          type VARCHAR(20) NOT NULL,
-          value DECIMAL(10,2) NOT NULL,
-          minOrder DECIMAL(10,2) NOT NULL,
-          active TINYINT(1) DEFAULT 1,
-          usageCount INT DEFAULT 0,
-          itemId VARCHAR(50) NULL
-        );
-      `);
-
-      // Seed default coupons if none exist
-      const [couponsRows]: any = await conn.query("SELECT COUNT(*) as count FROM coupons");
-      if (couponsRows[0].count === 0) {
-        await conn.query(`
-          INSERT INTO coupons (code, type, value, minOrder, active, usageCount, itemId) VALUES
-          ('VEGPANIER', 'flat', 100.00, 400.00, 1, 12, NULL),
-          ('LUNCH25', 'percent', 25.00, 250.00, 1, 45, NULL),
-          ('FIRSTORDER', 'flat', 50.00, 150.00, 1, 89, NULL),
-          ('PANEER50', 'flat', 50.00, 0.00, 1, 5, 'm_paneer_butter_masala');
-        `);
-      }
-
-      // Table: orders
-      await conn.query(`
-        CREATE TABLE IF NOT EXISTS orders (
-          id VARCHAR(50) PRIMARY KEY,
-          sourceType VARCHAR(20) NOT NULL,
-          sourceLabel VARCHAR(100) NOT NULL,
-          status VARCHAR(20) NOT NULL,
-          placedAt VARCHAR(50) NOT NULL,
-          updatedAt VARCHAR(50) NOT NULL,
-          total DECIMAL(10,2) NOT NULL,
-          couponCode VARCHAR(50) NULL,
-          discount DECIMAL(10,2) NULL,
-          items JSON NOT NULL,
-          instructions TEXT NULL
-        );
-      `);
-
-      // Seed mock orders if empty
-      const [ordersRows]: any = await conn.query("SELECT COUNT(*) as count FROM orders");
-      if (ordersRows[0].count === 0) {
-        await conn.query(`
-          INSERT INTO orders (id, sourceType, sourceLabel, status, placedAt, updatedAt, total, couponCode, discount, items, instructions) VALUES
-          ('ORD-4927', 'room', 'Room 204', 'pending', '${new Date().toISOString()}', '${new Date().toISOString()}', 475.00, NULL, NULL, 
-           '[{"id":"m_paneer_butter_masala","name":"Paneer Butter Masala","qty":1,"price":310,"veg":true},{"id":"m_tandoori_roti","name":"Tandoori Roti","qty":2,"price":45,"veg":true},{"id":"m_jeera_rice","name":"Jeera Rice","qty":1,"price":120,"veg":true}]', NULL),
-          ('ORD-8812', 'table', 'Table T4', 'preparing', '${new Date().toISOString()}', '${new Date().toISOString()}', 355.00, 'FIRSTORDER', 50.00, 
-           '[{"id":"m_paneer_tikka","name":"Paneer Tikka","qty":1,"price":245,"veg":true},{"id":"m_masala_chai","name":"Masala Chai","qty":2,"price":80,"veg":true}]', 'Make paneer spicy'),
-          ('ORD-1049', 'table', 'Table T1', 'ready', '${new Date().toISOString()}', '${new Date().toISOString()}', 180.00, NULL, NULL, 
-           '[{"id":"m_veg_manchurian","name":"Veg Manchurian","qty":1,"price":180,"veg":true}]', NULL);
-        `);
-      }
-
-      // Drop old bookings table to update schema dynamically
-      await conn.query("DROP TABLE IF EXISTS bookings;");
-
-      // Table: bookings
-      await conn.query(`
-        CREATE TABLE IF NOT EXISTS bookings (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          roomId VARCHAR(50) NOT NULL,
-          roomNumber VARCHAR(50) NOT NULL,
-          guestName VARCHAR(100) NOT NULL,
-          mobileNumber VARCHAR(20) NOT NULL,
-          idType VARCHAR(50) NOT NULL,
-          idNumber VARCHAR(50) NOT NULL,
-          idPhotoFront LONGTEXT NULL,
-          idPhotoBack LONGTEXT NULL,
-          passportCountry VARCHAR(100) NULL,
-          address VARCHAR(255) NULL,
-          adults INT DEFAULT 1,
-          children INT DEFAULT 0,
-          coGuests JSON NULL,
-          checkInDate VARCHAR(50) NOT NULL,
-          checkOutDate VARCHAR(50) NOT NULL,
-          price DECIMAL(10,2) NOT NULL,
-          paymentMode VARCHAR(50) NOT NULL,
-          advancePaid DECIMAL(10,2) DEFAULT 0,
-          bookingSource VARCHAR(50) NOT NULL,
-          tariff DECIMAL(10,2) NOT NULL,
-          extraCharge DECIMAL(10,2) DEFAULT 0,
-          gst DECIMAL(10,2) DEFAULT 0,
-          discount DECIMAL(10,2) DEFAULT 0,
-          status VARCHAR(20) DEFAULT 'active'
-        );
-      `);
-
-      // Seed mock bookings if empty
-      const [bookingsRows]: any = await conn.query("SELECT COUNT(*) as count FROM bookings");
-      if (bookingsRows[0].count === 0) {
-        await conn.query(`
-          INSERT INTO bookings (roomId, roomNumber, guestName, mobileNumber, idType, idNumber, idPhotoFront, idPhotoBack, passportCountry, address, adults, children, coGuests, checkInDate, checkOutDate, price, paymentMode, advancePaid, bookingSource, tariff, extraCharge, gst, discount, status) VALUES
-          ('r3', '204', 'Rohan Gupta', '9876543210', 'Aadhaar', '5849-2049-1029', NULL, NULL, NULL, 'New Delhi, Delhi', 2, 0,
-           '[{"name":"Priya Gupta","idType":"Aadhaar","idNumber":"1940-2094-1049","idPhotoFront":null,"idPhotoBack":null}]',
-           '${new Date().toISOString().split("T")[0]}T12:00', '${new Date(Date.now() + 86400000 * 3).toISOString().split("T")[0]}T11:00', 7500.00, 'UPI', 2000.00, 'Online', 2500.00, 0.00, 0.00, 0.00, 'active'),
-          ('r1', '101', 'Aniket Sharma', '8888888888', 'Aadhaar', '9019-3829-1022', NULL, NULL, NULL, 'Mumbai, Maharashtra', 1, 0, NULL,
-           '${new Date().toISOString().split("T")[0]}T14:00', '${new Date(Date.now() + 86400000 * 2).toISOString().split("T")[0]}T12:00', 3600.00, 'Cash', 0.00, 'Walk-in', 1800.00, 0.00, 0.00, 0.00, 'active'),
-          ('r5', '301', 'Vikram Singh', '7777777777', 'Aadhaar', '3049-1920-4491', NULL, NULL, NULL, 'Jaipur, Rajasthan', 2, 1,
-           '[{"name":"Karan Singh","idType":"Aadhaar","idNumber":"4092-2930-1092","idPhotoFront":null,"idPhotoBack":null},{"name":"Suman Singh","idType":"Aadhaar","idNumber":"8920-1920-3301","idPhotoFront":null,"idPhotoBack":null}]',
-           '${new Date().toISOString().split("T")[0]}T13:00', '${new Date(Date.now() + 86400000 * 5).toISOString().split("T")[0]}T11:00', 16000.00, 'Card', 5000.00, 'Travel Agent', 3200.00, 0.00, 0.00, 0.00, 'active');
-      `);
-      }
-
-      // Drop old rough_orders if it exists to clean up
-      await conn.query("DROP TABLE IF EXISTS rough_orders;");
-
-      // Table: rough_customers
-      await conn.query(`
-        CREATE TABLE IF NOT EXISTS rough_customers (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          name VARCHAR(100) NOT NULL UNIQUE,
-          phone VARCHAR(20) NULL,
-          totalDue DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-          createdAt VARCHAR(50) NOT NULL,
-          updatedAt VARCHAR(50) NOT NULL
-        );
-      `);
-
-      // Table: rough_transactions
-      await conn.query(`
-        CREATE TABLE IF NOT EXISTS rough_transactions (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          customerId INT NOT NULL,
-          type VARCHAR(20) NOT NULL, -- 'bill' or 'payment'
-          amount DECIMAL(10,2) NOT NULL,
-          items JSON NULL,
-          notes TEXT NULL,
-          createdAt VARCHAR(50) NOT NULL,
-          FOREIGN KEY (customerId) REFERENCES rough_customers(id) ON DELETE CASCADE
-        );
-      `);
-
-      // Seed mock customers and transactions if none exist
-      const [customerCountRows]: any = await conn.query("SELECT COUNT(*) as count FROM rough_customers");
-      if (customerCountRows[0].count === 0) {
-        const now = new Date().toISOString();
-        
-        // Suresh Kumar Profile
-        const [sureshResult]: any = await conn.query(
-          "INSERT INTO rough_customers (name, phone, totalDue, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)",
-          ['Suresh Kumar', '9876543201', 150.00, now, now]
-        );
-        const sureshId = sureshResult.insertId;
-        
-        await conn.query(
-          "INSERT INTO rough_transactions (customerId, type, amount, items, notes, createdAt) VALUES (?, 'bill', 450.00, ?, 'Dinner bill', ?)",
-          [sureshId, JSON.stringify([{name:"Kadai Paneer",qty:1,price:250},{name:"Butter Naan",qty:4,price:50}]), now]
-        );
-        await conn.query(
-          "INSERT INTO rough_transactions (customerId, type, amount, items, notes, createdAt) VALUES (?, 'payment', 300.00, NULL, 'Paid cash, said will clear rest tomorrow morning', ?)",
-          [sureshId, now]
-        );
-
-        // Ramesh Uncle Profile
-        const [rameshResult]: any = await conn.query(
-          "INSERT INTO rough_customers (name, phone, totalDue, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)",
-          ['Ramesh Uncle', '9822114455', -20.00, now, now]
-        );
-        const rameshId = rameshResult.insertId;
-        
-        await conn.query(
-          "INSERT INTO rough_transactions (customerId, type, amount, items, notes, createdAt) VALUES (?, 'bill', 180.00, ?, 'Evening tea', ?)",
-          [rameshId, JSON.stringify([{name:"Masala Chai",qty:4,price:45}]), now]
-        );
-        await conn.query(
-          "INSERT INTO rough_transactions (customerId, type, amount, items, notes, createdAt) VALUES (?, 'payment', 200.00, NULL, 'Gave extra 20 rupees, adjust in tomorrow morning tea', ?)",
-          [rameshId, now]
-        );
-
-        // Dr. Amit Verma Profile
-        const [amitResult]: any = await conn.query(
-          "INSERT INTO rough_customers (name, phone, totalDue, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)",
-          ['Dr. Amit Verma', '9911883344', 0.00, now, now]
-        );
-        const amitId = amitResult.insertId;
-        
-        await conn.query(
-          "INSERT INTO rough_transactions (customerId, type, amount, items, notes, createdAt) VALUES (?, 'bill', 320.00, ?, 'Lunch', ?)",
-          [amitId, JSON.stringify([{name:"Veg Biryani",qty:1,price:280},{name:"Sweet Lassi",qty:1,price:40}]), now]
-        );
-        await conn.query(
-          "INSERT INTO rough_transactions (customerId, type, amount, items, notes, createdAt) VALUES (?, 'payment', 320.00, NULL, 'Fully paid via UPI', ?)",
-          [amitId, now]
-        );
-      }
-
-      console.log("MySQL Database Initialized Successfully!");
-    } finally {
-      conn.release();
+    if (!mongoClient) {
+      mongoClient = new MongoClient(mongoUri);
+      await mongoClient.connect();
     }
+    mongoDb = mongoClient.db();
+    console.log("Connected to MongoDB successfully!");
+    return mongoDb;
   } catch (err) {
-    console.error("Database connection/init failed:", err);
+    console.error("MongoDB connection failed. Falling back to local file database.", err);
+    useLocalFallback = true;
+    return null;
   }
 }
+
+// Seed Initial Data
+export async function initDb() {
+  const db = await getDb();
+  if (db) {
+    try {
+      // 1. Coupons Seed
+      const couponsColl = db.collection("coupons");
+      const couponsCount = await couponsColl.countDocuments();
+      if (couponsCount === 0) {
+        await couponsColl.insertMany([
+          { code: "VEGPANIER", type: "flat", value: 100.00, minOrder: 400.00, active: 1, usageCount: 12, itemId: null },
+          { code: "LUNCH25", type: "percent", value: 25.00, minOrder: 250.00, active: 1, usageCount: 45, itemId: null },
+          { code: "FIRSTORDER", type: "flat", value: 50.00, minOrder: 150.00, active: 1, usageCount: 89, itemId: null },
+          { code: "PANEER50", type: "flat", value: 50.00, minOrder: 0.00, active: 1, usageCount: 5, itemId: "m_paneer_butter_masala" }
+        ]);
+      }
+
+      // 2. Orders Seed
+      const ordersColl = db.collection("orders");
+      const ordersCount = await ordersColl.countDocuments();
+      if (ordersCount === 0) {
+        await ordersColl.insertMany([
+          {
+            id: "ORD-4927",
+            sourceType: "room",
+            sourceLabel: "Room 204",
+            status: "pending",
+            placedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            total: 475.00,
+            couponCode: null,
+            discount: null,
+            items: [
+              { id: "m_paneer_butter_masala", name: "Paneer Butter Masala", qty: 1, price: 310, veg: true },
+              { id: "m_tandoori_roti", name: "Tandoori Roti", qty: 2, price: 45, veg: true },
+              { id: "m_jeera_rice", name: "Jeera Rice", qty: 1, price: 120, veg: true }
+            ],
+            instructions: null
+          },
+          {
+            id: "ORD-8812",
+            sourceType: "table",
+            sourceLabel: "Table T4",
+            status: "preparing",
+            placedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            total: 355.00,
+            couponCode: "FIRSTORDER",
+            discount: 50.00,
+            items: [
+              { id: "m_paneer_tikka", name: "Paneer Tikka", qty: 1, price: 245, veg: true },
+              { id: "m_masala_chai", name: "Masala Chai", qty: 2, price: 80, veg: true }
+            ],
+            instructions: "Make paneer spicy"
+          },
+          {
+            id: "ORD-1049",
+            sourceType: "table",
+            sourceLabel: "Table T1",
+            status: "ready",
+            placedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            total: 180.00,
+            couponCode: null,
+            discount: null,
+            items: [
+              { id: "m_veg_manchurian", name: "Veg Manchurian", qty: 1, price: 180, veg: true }
+            ],
+            instructions: null
+          }
+        ]);
+      }
+
+      // 3. Bookings Seed
+      const bookingsColl = db.collection("bookings");
+      const bookingsCount = await bookingsColl.countDocuments();
+      if (bookingsCount === 0) {
+        await bookingsColl.insertMany([
+          {
+            id: 1,
+            roomId: "r3",
+            roomNumber: "204",
+            guestName: "Rohan Gupta",
+            mobileNumber: "9876543210",
+            idType: "Aadhaar",
+            idNumber: "5849-2049-1029",
+            idPhotoFront: null,
+            idPhotoBack: null,
+            passportCountry: null,
+            address: "New Delhi, Delhi",
+            adults: 2,
+            children: 0,
+            coGuests: [{ name: "Priya Gupta", idType: "Aadhaar", idNumber: "1940-2094-1049", idPhotoFront: null, idPhotoBack: null }],
+            checkInDate: `${new Date().toISOString().split("T")[0]}T12:00`,
+            checkOutDate: `${new Date(Date.now() + 86400000 * 3).toISOString().split("T")[0]}T11:00`,
+            price: 7500.00,
+            paymentMode: "UPI",
+            advancePaid: 2000.00,
+            bookingSource: "Online",
+            tariff: 2500.00,
+            extraCharge: 0.00,
+            gst: 0.00,
+            discount: 0.00,
+            status: "active"
+          },
+          {
+            id: 2,
+            roomId: "r1",
+            roomNumber: "101",
+            guestName: "Aniket Sharma",
+            mobileNumber: "8888888888",
+            idType: "Aadhaar",
+            idNumber: "9019-3829-1022",
+            idPhotoFront: null,
+            idPhotoBack: null,
+            passportCountry: null,
+            address: "Mumbai, Maharashtra",
+            adults: 1,
+            children: 0,
+            coGuests: null,
+            checkInDate: `${new Date().toISOString().split("T")[0]}T14:00`,
+            checkOutDate: `${new Date(Date.now() + 86400000 * 2).toISOString().split("T")[0]}T12:00`,
+            price: 3600.00,
+            paymentMode: "Cash",
+            advancePaid: 0.00,
+            bookingSource: "Walk-in",
+            tariff: 1800.00,
+            extraCharge: 0.00,
+            gst: 0.00,
+            discount: 0.00,
+            status: "active"
+          },
+          {
+            id: 3,
+            roomId: "r5",
+            roomNumber: "301",
+            guestName: "Vikram Singh",
+            mobileNumber: "7777777777",
+            idType: "Aadhaar",
+            idNumber: "3049-1920-4491",
+            idPhotoFront: null,
+            idPhotoBack: null,
+            passportCountry: null,
+            address: "Jaipur, Rajasthan",
+            adults: 2,
+            children: 1,
+            coGuests: [
+              { name: "Karan Singh", idType: "Aadhaar", idNumber: "4092-2930-1092", idPhotoFront: null, idPhotoBack: null },
+              { name: "Suman Singh", idType: "Aadhaar", idNumber: "8920-1920-3301", idPhotoFront: null, idPhotoBack: null }
+            ],
+            checkInDate: `${new Date().toISOString().split("T")[0]}T13:00`,
+            checkOutDate: `${new Date(Date.now() + 86400000 * 5).toISOString().split("T")[0]}T11:00`,
+            price: 16000.00,
+            paymentMode: "Card",
+            advancePaid: 5000.00,
+            bookingSource: "Travel Agent",
+            tariff: 3200.00,
+            extraCharge: 0.00,
+            gst: 0.00,
+            discount: 0.00,
+            status: "active"
+          }
+        ]);
+      }
+
+      // 4. Rough Customers & Transactions Seed
+      const rCustColl = db.collection("rough_customers");
+      const rCustCount = await rCustColl.countDocuments();
+      if (rCustCount === 0) {
+        const now = new Date().toISOString();
+        const rTransColl = db.collection("rough_transactions");
+
+        await rCustColl.insertOne({ id: 1, name: "Suresh Kumar", phone: "9876543201", totalDue: 150.00, createdAt: now, updatedAt: now });
+        await rTransColl.insertMany([
+          { id: 1, customerId: 1, type: "bill", amount: 450.00, items: [{ name: "Kadai Paneer", qty: 1, price: 250 }, { name: "Butter Naan", qty: 4, price: 50 }], notes: "Dinner bill", createdAt: now },
+          { id: 2, customerId: 1, type: "payment", amount: 300.00, items: null, notes: "Paid cash, said will clear rest tomorrow morning", createdAt: now }
+        ]);
+
+        await rCustColl.insertOne({ id: 2, name: "Ramesh Uncle", phone: "9822114455", totalDue: -20.00, createdAt: now, updatedAt: now });
+        await rTransColl.insertMany([
+          { id: 3, customerId: 2, type: "bill", amount: 180.00, items: [{ name: "Masala Chai", qty: 4, price: 45 }], notes: "Evening tea", createdAt: now },
+          { id: 4, customerId: 2, type: "payment", amount: 200.00, items: null, notes: "Gave extra 20 rupees, adjust in tomorrow morning tea", createdAt: now }
+        ]);
+
+        await rCustColl.insertOne({ id: 3, name: "Dr. Amit Verma", phone: "9911883344", totalDue: 0.00, createdAt: now, updatedAt: now });
+        await rTransColl.insertMany([
+          { id: 5, customerId: 3, type: "bill", amount: 320.00, items: [{ name: "Veg Biryani", qty: 1, price: 280 }, { name: "Sweet Lassi", qty: 1, price: 40 }], notes: "Lunch", createdAt: now },
+          { id: 6, customerId: 3, type: "payment", amount: 320.00, items: null, notes: "Fully paid via UPI", createdAt: now }
+        ]);
+      }
+    } catch (err) {
+      console.error("Database seeding failed:", err);
+    }
+  } else {
+    // Local JSON Fallback Seeding
+    const seedLocal = (table: string, defaultData: any[]) => {
+      const data = readLocalData(table);
+      if (data.length === 0) {
+        writeLocalData(table, defaultData);
+      }
+    };
+
+    seedLocal("coupons", [
+      { code: "VEGPANIER", type: "flat", value: 100.00, minOrder: 400.00, active: 1, usageCount: 12, itemId: null },
+      { code: "LUNCH25", type: "percent", value: 25.00, minOrder: 250.00, active: 1, usageCount: 45, itemId: null },
+      { code: "FIRSTORDER", type: "flat", value: 50.00, minOrder: 150.00, active: 1, usageCount: 89, itemId: null },
+      { code: "PANEER50", type: "flat", value: 50.00, minOrder: 0.00, active: 1, usageCount: 5, itemId: "m_paneer_butter_masala" }
+    ]);
+
+    seedLocal("orders", [
+      { id: "ORD-4927", sourceType: "room", sourceLabel: "Room 204", status: "pending", placedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), total: 475.00, couponCode: null, discount: null, items: [{ id: "m_paneer_butter_masala", name: "Paneer Butter Masala", qty: 1, price: 310, veg: true }, { id: "m_tandoori_roti", name: "Tandoori Roti", qty: 2, price: 45, veg: true }, { id: "m_jeera_rice", name: "Jeera Rice", qty: 1, price: 120, veg: true }], instructions: null },
+      { id: "ORD-8812", sourceType: "table", sourceLabel: "Table T4", status: "preparing", placedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), total: 355.00, couponCode: "FIRSTORDER", discount: 50.00, items: [{ id: "m_paneer_tikka", name: "Paneer Tikka", qty: 1, price: 245, veg: true }, { id: "m_masala_chai", name: "Masala Chai", qty: 2, price: 80, veg: true }], instructions: "Make paneer spicy" },
+      { id: "ORD-1049", sourceType: "table", sourceLabel: "Table T1", status: "ready", placedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), total: 180.00, couponCode: null, discount: null, items: [{ id: "m_veg_manchurian", name: "Veg Manchurian", qty: 1, price: 180, veg: true }], instructions: null }
+    ]);
+
+    seedLocal("bookings", [
+      { id: 1, roomId: "r3", roomNumber: "204", guestName: "Rohan Gupta", mobileNumber: "9876543210", idType: "Aadhaar", idNumber: "5849-2049-1029", idPhotoFront: null, idPhotoBack: null, passportCountry: null, address: "New Delhi, Delhi", adults: 2, children: 0, coGuests: [{ name: "Priya Gupta", idType: "Aadhaar", idNumber: "1940-2094-1049", idPhotoFront: null, idPhotoBack: null }], checkInDate: `${new Date().toISOString().split("T")[0]}T12:00`, checkOutDate: `${new Date(Date.now() + 86400000 * 3).toISOString().split("T")[0]}T11:00`, price: 7500.00, paymentMode: "UPI", advancePaid: 2000.00, bookingSource: "Online", tariff: 2500.00, extraCharge: 0.00, gst: 0.00, discount: 0.00, status: "active" },
+      { id: 2, roomId: "r1", roomNumber: "101", guestName: "Aniket Sharma", mobileNumber: "8888888888", idType: "Aadhaar", idNumber: "9019-3829-1022", idPhotoFront: null, idPhotoBack: null, passportCountry: null, address: "Mumbai, Maharashtra", adults: 1, children: 0, coGuests: null, checkInDate: `${new Date().toISOString().split("T")[0]}T14:00`, checkOutDate: `${new Date(Date.now() + 86400000 * 2).toISOString().split("T")[0]}T12:00`, price: 3600.00, paymentMode: "Cash", advancePaid: 0.00, bookingSource: "Walk-in", tariff: 1800.00, extraCharge: 0.00, gst: 0.00, discount: 0.00, status: "active" },
+      { id: 3, roomId: "r5", roomNumber: "301", guestName: "Vikram Singh", mobileNumber: "7777777777", idType: "Aadhaar", idNumber: "3049-1920-4491", idPhotoFront: null, idPhotoBack: null, passportCountry: null, address: "Jaipur, Rajasthan", adults: 2, children: 1, coGuests: [{ name: "Karan Singh", idType: "Aadhaar", idNumber: "4092-2930-1092", idPhotoFront: null, idPhotoBack: null }, { name: "Suman Singh", idType: "Aadhaar", idNumber: "8920-1920-3301", idPhotoFront: null, idPhotoBack: null }], checkInDate: `${new Date().toISOString().split("T")[0]}T13:00`, checkOutDate: `${new Date(Date.now() + 86400000 * 5).toISOString().split("T")[0]}T11:00`, price: 16000.00, paymentMode: "Card", advancePaid: 5000.00, bookingSource: "Travel Agent", tariff: 3200.00, extraCharge: 0.00, gst: 0.00, discount: 0.00, status: "active" }
+    ]);
+
+    seedLocal("rough_customers", [
+      { id: 1, name: "Suresh Kumar", phone: "9876543201", totalDue: 150.00, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: 2, name: "Ramesh Uncle", phone: "9822114455", totalDue: -20.00, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: 3, name: "Dr. Amit Verma", phone: "9911883344", totalDue: 0.00, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    ]);
+
+    seedLocal("rough_transactions", [
+      { id: 1, customerId: 1, type: "bill", amount: 450.00, items: [{ name: "Kadai Paneer", qty: 1, price: 250 }, { name: "Butter Naan", qty: 4, price: 50 }], notes: "Dinner bill", createdAt: new Date().toISOString() },
+      { id: 2, customerId: 1, type: "payment", amount: 300.00, items: null, notes: "Paid cash, said will clear rest tomorrow morning", createdAt: new Date().toISOString() },
+      { id: 3, customerId: 2, type: "bill", amount: 180.00, items: [{ name: "Masala Chai", qty: 4, price: 45 }], notes: "Evening tea", createdAt: new Date().toISOString() },
+      { id: 4, customerId: 2, type: "payment", amount: 200.00, items: null, notes: "Gave extra 20 rupees, adjust in tomorrow morning tea", createdAt: new Date().toISOString() },
+      { id: 5, customerId: 3, type: "bill", amount: 320.00, items: [{ name: "Veg Biryani", qty: 1, price: 280 }, { name: "Sweet Lassi", qty: 1, price: 40 }], notes: "Lunch", createdAt: new Date().toISOString() },
+      { id: 6, customerId: 3, type: "payment", amount: 320.00, items: null, notes: "Fully paid via UPI", createdAt: new Date().toISOString() }
+    ]);
+
+    console.log("Local File System Mock Database Initialized Successfully!");
+  }
+}
+
+// SQL to MongoDB Query Router and Emulator
+const pool = {
+  async getConnection() {
+    return {
+      query: this.query.bind(this),
+      beginTransaction: async () => {},
+      commit: async () => {},
+      rollback: async () => {},
+      release: () => {}
+    };
+  },
+  async query(sql: string, params: any[] = []): Promise<any[]> {
+    const cleanSql = sql.trim().replace(/\s+/g, " ");
+
+    const db = await getDb();
+
+    // 1. SELECT COUNT(*) as count FROM <table>
+    const countMatch = cleanSql.match(/SELECT COUNT\(\*\) as count FROM (\w+)/i);
+    if (countMatch) {
+      const table = countMatch[1];
+      if (db) {
+        const count = await db.collection(table).countDocuments();
+        return [[{ count }]];
+      } else {
+        const count = readLocalData(table).length;
+        return [[{ count }]];
+      }
+    }
+
+    // 2. SELECT * FROM <table> ORDER BY <col> ASC/DESC
+    const selectAllSortMatch = cleanSql.match(/SELECT \* FROM (\w+) ORDER BY (\w+) (ASC|DESC)/i);
+    if (selectAllSortMatch) {
+      const table = selectAllSortMatch[1];
+      const sortCol = selectAllSortMatch[2];
+      const sortDir = selectAllSortMatch[3].toUpperCase() === "DESC" ? -1 : 1;
+      if (db) {
+        const rows = await db.collection(table).find().sort({ [sortCol]: sortDir }).toArray();
+        return [rows];
+      } else {
+        const rows = readLocalData(table).sort((a, b) => {
+          if (a[sortCol] < b[sortCol]) return -sortDir;
+          if (a[sortCol] > b[sortCol]) return sortDir;
+          return 0;
+        });
+        return [rows];
+      }
+    }
+
+    // 3. SELECT * FROM <table> WHERE <col> = ? AND <col2> = ?
+    const selectWhereTwoMatch = cleanSql.match(/SELECT \* FROM (\w+) WHERE (\w+) = \? AND (\w+) = \?/i);
+    if (selectWhereTwoMatch) {
+      const table = selectWhereTwoMatch[1];
+      const col1 = selectWhereTwoMatch[2];
+      const col2 = selectWhereTwoMatch[3];
+      const val1 = params[0];
+      const val2 = params[1];
+      if (db) {
+        const rows = await db.collection(table).find({ [col1]: val1, [col2]: val2 }).toArray();
+        return [rows];
+      } else {
+        const rows = readLocalData(table).filter(r => r[col1] === val1 && r[col2] === val2);
+        return [rows];
+      }
+    }
+
+    // 4. SELECT * FROM <table> WHERE <col> = ?
+    const selectWhereMatch = cleanSql.match(/SELECT \* FROM (\w+) WHERE (\w+) = \?/i);
+    if (selectWhereMatch) {
+      const table = selectWhereMatch[1];
+      const col = selectWhereMatch[2];
+      const val = params[0];
+      if (db) {
+        // Handle queries where val is cast as ID or number/string conversion
+        let queryVal: any = val;
+        if (col === "customerId" || col === "id") {
+          const num = Number(val);
+          if (!isNaN(num)) queryVal = num;
+        }
+        const rows = await db.collection(table).find({ [col]: queryVal }).toArray();
+        return [rows];
+      } else {
+        const rows = readLocalData(table).filter(r => String(r[col]) === String(val));
+        return [rows];
+      }
+    }
+
+    // 5. SELECT * FROM <table>
+    const selectAllMatch = cleanSql.match(/SELECT \* FROM (\w+)/i);
+    if (selectAllMatch) {
+      const table = selectAllMatch[1];
+      if (db) {
+        const rows = await db.collection(table).find().toArray();
+        return [rows];
+      } else {
+        const rows = readLocalData(table);
+        return [rows];
+      }
+    }
+
+    // 6. INSERT INTO <table> (<cols>) VALUES (?, ?)
+    const insertMatch = cleanSql.match(/INSERT INTO (\w+) \((.*?)\) VALUES \((.*?)\)/i);
+    if (insertMatch) {
+      const table = insertMatch[1];
+      const cols = insertMatch[2].split(",").map(c => c.trim().replace(/`/g, ""));
+      
+      const doc: any = {};
+      cols.forEach((col, idx) => {
+        let val = params[idx];
+        // Handle parsing JSON items column
+        if (col === "items" || col === "coGuests") {
+          try {
+            if (typeof val === "string") {
+              val = JSON.parse(val);
+            }
+          } catch {}
+        }
+        doc[col] = val;
+      });
+
+      // Handle auto-increment IDs
+      const autoIncrementTables = ["bookings", "rough_customers", "rough_transactions"];
+      if (autoIncrementTables.includes(table) && !doc.id) {
+        let maxId = 0;
+        if (db) {
+          const highest = await db.collection(table).find().sort({ id: -1 }).limit(1).toArray();
+          if (highest.length > 0) {
+            maxId = Number(highest[0].id) || 0;
+          }
+        } else {
+          const rows = readLocalData(table);
+          rows.forEach(r => {
+            const idNum = Number(r.id);
+            if (idNum > maxId) maxId = idNum;
+          });
+        }
+        doc.id = maxId + 1;
+      }
+
+      if (db) {
+        const res = await db.collection(table).insertOne(doc);
+        return [{ insertId: doc.id || res.insertedId }];
+      } else {
+        const rows = readLocalData(table);
+        rows.push(doc);
+        writeLocalData(table, rows);
+        return [{ insertId: doc.id }];
+      }
+    }
+
+    // 7. UPDATE <table> SET <col> = ?, <col2> = ? WHERE <col3> = ?
+    const updateMatch = cleanSql.match(/UPDATE (\w+) SET (.*?) WHERE (.*?) = \?/i);
+    if (updateMatch) {
+      const table = updateMatch[1];
+      const setsStr = updateMatch[2];
+      const whereCol = updateMatch[3].trim().replace(/`/g, "");
+      const whereVal = params[params.length - 1];
+
+      // Parse SETs (e.g. usageCount = usageCount + 1 OR totalDue = ? OR name = ?, phone = ?)
+      const updateDoc: any = {};
+      let isIncrement = false;
+      let incCol = "";
+
+      if (setsStr.includes("usageCount = usageCount + 1")) {
+        isIncrement = true;
+        incCol = "usageCount";
+      } else {
+        const setPairs = setsStr.split(",").map(s => s.trim());
+        setPairs.forEach((pair, idx) => {
+          const colName = pair.split("=")[0].trim().replace(/`/g, "");
+          updateDoc[colName] = params[idx];
+        });
+      }
+
+      if (db) {
+        let filterVal: any = whereVal;
+        if (whereCol === "id" || whereCol === "customerId") {
+          const num = Number(whereVal);
+          if (!isNaN(num)) filterVal = num;
+        }
+
+        const updateOperation = isIncrement 
+          ? { $inc: { [incCol]: 1 } }
+          : { $set: updateDoc };
+
+        await db.collection(table).updateMany({ [whereCol]: filterVal }, updateOperation);
+        return [{ affectedRows: 1 }];
+      } else {
+        let rows = readLocalData(table);
+        let affected = 0;
+        rows = rows.map(r => {
+          if (String(r[whereCol]) === String(whereVal)) {
+            affected++;
+            if (isIncrement) {
+              r[incCol] = (Number(r[incCol]) || 0) + 1;
+            } else {
+              Object.keys(updateDoc).forEach(k => {
+                r[k] = updateDoc[k];
+              });
+            }
+          }
+          return r;
+        });
+        writeLocalData(table, rows);
+        return [{ affectedRows: affected }];
+      }
+    }
+
+    // 8. DELETE FROM <table> WHERE <col> = ?
+    const deleteMatch = cleanSql.match(/DELETE FROM (\w+) WHERE (\w+) = \?/i);
+    if (deleteMatch) {
+      const table = deleteMatch[1];
+      const col = deleteMatch[2];
+      const val = params[0];
+      if (db) {
+        let filterVal: any = val;
+        if (col === "id") {
+          const num = Number(val);
+          if (!isNaN(num)) filterVal = num;
+        }
+        await db.collection(table).deleteOne({ [col]: filterVal });
+        return [{ affectedRows: 1 }];
+      } else {
+        const rows = readLocalData(table);
+        const filtered = rows.filter(r => String(r[col]) !== String(val));
+        writeLocalData(table, filtered);
+        return [{ affectedRows: rows.length - filtered.length }];
+      }
+    }
+
+    console.warn(`Fallback: Executing unhandled SQL statement: ${cleanSql}`);
+    return [[]];
+  }
+};
 
 export { pool };
